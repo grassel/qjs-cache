@@ -62,32 +62,35 @@ static void output_object_code(JSContext *ctx,
                                const char *bytefilename,
                                 JSValueConst obj)
 {
-    FILE* fo;
-    const char* mode = "w";
-    uint8_t *out_buf;
-    size_t out_buf_len;
     int flags;
     flags = JS_WRITE_OBJ_BYTECODE;
-    if (byte_swap)
+    if (byte_swap) {
         flags |= JS_WRITE_OBJ_BSWAP;
-    out_buf = JS_WriteObject(ctx, &out_buf_len, obj, flags);
+    }
+    
+    size_t out_buf_len;
+    uint8_t * out_buf = JS_WriteObject(ctx, &out_buf_len, obj, flags);
     if (!out_buf) {
         js_std_dump_error(ctx);
         exit(1);
     }
     
-    fo = fopen(bytefilename, mode);
+    FILE *fo = fopen(bytefilename, "wb");  // w for write, b for binary
     if (!fo) {
         fprintf(stderr, "Failed open file '%s' for writing \n", bytefilename);
         exit(1);
     }
 
     // first line: length in bytes, needed?
-    fprintf(fo, "%u;\n", (unsigned int) out_buf_len);
-    dump_hex(fo, out_buf, out_buf_len);
+    fprintf(fo, "%u\n", (unsigned int) out_buf_len);
+
+    // followed by the binary data
+    fwrite(out_buf, out_buf_len, 1, fo);
+
+    // dump_hex(fo, out_buf, out_buf_len); 
 
     fclose(fo);
-    printf("Wrote %ldbytes to file '%s'\n", out_buf_len,  bytefilename);
+    printf("Wrote %ldbytes to file '%s'\n", out_buf_len, bytefilename);
     js_free(ctx, out_buf);
 }
 
@@ -98,7 +101,7 @@ JSValue read_js_from_cache(JSContext *ctx, const char *bytefilename) {
         return JS_UNDEFINED;
     }
 
-    FILE *fi = fopen(bytefilename, "r");
+    FILE *fi = fopen(bytefilename, "rb");
     if (!fi) {
         fprintf(stderr, "Failed open file '%s' for reading \n", bytefilename);
         exit(1);
@@ -106,16 +109,11 @@ JSValue read_js_from_cache(JSContext *ctx, const char *bytefilename) {
 
     uint8_t *in_buf;
     unsigned int in_buf_len;
-    fscanf(fi, "%u;\n", &in_buf_len);
+    fscanf(fi, "%u\n", &in_buf_len);
 
-    size_t i;
-    unsigned int c = 0;
     in_buf = malloc(in_buf_len+1);
-    for(i = 0; i < in_buf_len; i++) {
+    fread(in_buf, in_buf_len, 1, fi);
 
-        fscanf(fi, " 0x%02x,", &c);
-        in_buf[i] = c;
-    }
     printf("Read %ubytes of bytecode from file '%s'\n", in_buf_len,  bytefilename);
 
     JSValue jsCode = JS_ReadObject(ctx, in_buf, in_buf_len, JS_READ_OBJ_BYTECODE);
